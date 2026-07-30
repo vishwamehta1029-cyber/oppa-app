@@ -51,6 +51,10 @@ create table audits (
 );
 
 -- audit_categories table
+-- NOTE: a category can now hold MULTIPLE photos. photo_url and
+-- photo_captured_at store one value per photo, joined together with the
+-- pipe character "|" in the same order (photo 1's url lines up with photo
+-- 1's timestamp, and so on). Voice notes remain single, one per category.
 create table audit_categories (
     id uuid primary key default gen_random_uuid(),
     audit_id uuid references audits(id) on delete cascade,
@@ -62,7 +66,7 @@ create table audit_categories (
     notes text,
     photo_url text,
     audio_url text,
-    photo_captured_at timestamptz,
+    photo_captured_at text,
     audio_captured_at timestamptz
 );
 
@@ -348,13 +352,12 @@ def init_session_state():
                 "auditor_score": 1,
                 "severity": "Normal",
                 "notes": "",
-                "photo_bytes": None,
-                "photo_hash": None,
-                "photo_captured_at": None,
+                # "photos" holds MULTIPLE photos: a list of dicts, each
+                # {"hash": ..., "bytes": ..., "captured_at": datetime, "url": None}
+                "photos": [],
                 "audio_bytes": None,
                 "audio_hash": None,
                 "audio_captured_at": None,
-                "photo_url": None,
                 "audio_url": None,
             }
             for cat in CATEGORIES
@@ -362,6 +365,9 @@ def init_session_state():
 
     if "last_saved_audit_id" not in st.session_state:
         st.session_state.last_saved_audit_id = None
+
+    if "confirm_delete" not in st.session_state:
+        st.session_state.confirm_delete = None
 
 
 def _bytes_hash(b):
@@ -374,6 +380,38 @@ def format_ts(ts):
     if not ts:
         return None
     return ts.strftime("%b %d, %Y • %I:%M:%S %p")
+
+
+def display_name_from_email(email):
+    """Turns an email like jane.doe@company.com into 'Jane Doe'."""
+    if not email:
+        return ""
+    local_part = email.split("@")[0]
+    cleaned = local_part.replace(".", " ").replace("_", " ").replace("-", " ")
+    return cleaned.title()
+
+
+# ==========================================================================
+# DELETE CONFIRMATION DIALOG
+# ==========================================================================
+
+@st.dialog("Delete photo")
+def confirm_delete_photo_dialog(cat_name, photo_index):
+    st.write("Are you sure you want to delete this photo? This cannot be undone.")
+    photos = st.session_state.categories[cat_name]["photos"]
+    if photo_index < len(photos):
+        st.image(photos[photo_index]["bytes"], use_container_width=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Cancel", use_container_width=True):
+            st.session_state.confirm_delete = None
+            st.rerun()
+    with col2:
+        if st.button("Delete", type="primary", use_container_width=True):
+            if photo_index < len(photos):
+                del photos[photo_index]
+            st.session_state.confirm_delete = None
+            st.rerun()
 
 
 # ==========================================================================
@@ -480,10 +518,16 @@ def render_header():
 
 
 def render_metadata_bar():
+    meta = st.session_state.audit_meta
+
+    # Auto-fill the auditor name from whoever is logged in, the first time
+    # the field is empty. The person can still edit it if it's wrong.
+    if not meta["auditor_name"] and st.session_state.user_email:
+        meta["auditor_name"] = display_name_from_email(st.session_state.user_email)
+
     with st.container(border=True):
         st.markdown("##### Audit Details")
         c1, c2, c3, c4, c5 = st.columns(5)
-        meta = st.session_state.audit_meta
         with c1:
             meta["audit_title"] = st.text_input(
                 "Audit Title / ID", value=meta["audit_title"], key="meta_title"
@@ -549,25 +593,56 @@ def render_category_card(cat_name, index):
 
         m1, m2 = st.columns(2)
         with m1:
-            st.markdown("**Photo Evidence**")
+            st.markdown(f"**Photo Evidence** ({len(data['photos'])} attached)")
+
+            existing_hashes = {p["hash"] for p in data["photos"]}
+
             photo = st.camera_input("Take a photo", key=f"camera_{cat_name}", label_visibility="collapsed")
-            if photo is None:
-                photo = st.file_uploader(
-                    "Or upload an image", type=["png", "jpg", "jpeg"], key=f"upload_{cat_name}"
-                )
             if photo is not None:
                 photo_bytes = photo.getvalue()
                 new_hash = _bytes_hash(photo_bytes)
-                # Only re-stamp the timestamp when the actual media bytes
-                # change -- not on every script rerun. This covers both a
-                # camera capture and a manual file upload.
-                if new_hash != data["photo_hash"]:
-                    data["photo_hash"] = new_hash
-                    data["photo_bytes"] = photo_bytes
-                    data["photo_captured_at"] = datetime.now()
-            if data["photo_bytes"]:
-                st.image(data["photo_bytes"], use_container_width=True)
-                st.caption(f"Captured: {format_ts(data['photo_captured_at'])}")
+                # Only append when this is genuinely a new capture, not a
+                # rerun replaying the same widget value.
+                if new_hash not in existing_hashes:
+                    data["photos"].append({
+                        "hash": new_hash,
+                        "bytes": photo_bytes,
+                        "captured_at": datetime.now(),
+                        "url": None,
+                    })
+                    st.rerun()
+
+            uploads = st.file_uploader(
+                "Or upload one or more images",
+                type=["png", "jpg", "jpeg"],
+                key=f"upload_{cat_name}",
+                accept_multiple_files=True,
+            )
+            if uploads:
+                added_any = False
+                for up in uploads:
+                    up_bytes = up.getvalue()
+                    up_hash = _bytes_hash(up_bytes)
+                    if up_hash not in existing_hashes:
+                        data["photos"].append({
+                            "hash": up_hash,
+                            "bytes": up_bytes,
+                            "captured_at": datetime.now(),
+                            "url": None,
+                        })
+                        existing_hashes.add(up_hash)
+                        added_any = True
+                if added_any:
+                    st.rerun()
+
+            for i, p in enumerate(data["photos"]):
+                st.image(p["bytes"], use_container_width=True)
+                cap_col, del_col = st.columns([3, 1])
+                with cap_col:
+                    st.caption(f"Captured: {format_ts(p['captured_at'])}")
+                with del_col:
+                    if st.button("Delete", key=f"del_photo_{cat_name}_{i}", use_container_width=True):
+                        confirm_delete_photo_dialog(cat_name, i)
 
         with m2:
             st.markdown("**Voice Note**")
@@ -598,7 +673,7 @@ def render_category_card(cat_name, index):
 def render_completion_section():
     cats = st.session_state.categories
     notes_count = sum(1 for c in cats.values() if c["notes"].strip())
-    photo_count = sum(1 for c in cats.values() if c["photo_bytes"])
+    photo_count = sum(len(c["photos"]) for c in cats.values())
     audio_count = sum(1 for c in cats.values() if c["audio_bytes"])
     critical_count = sum(
         1 for c in cats.values() if abs(c["client_score"] - c["auditor_score"]) >= CRITICAL_GAP_THRESHOLD
@@ -707,21 +782,22 @@ def render_dashboard():
 
 def render_media_gallery():
     cats = st.session_state.categories
-    any_media = any(c["photo_bytes"] or c["audio_bytes"] for c in cats.values())
+    any_media = any(c["photos"] or c["audio_bytes"] for c in cats.values())
     if not any_media:
         st.info("No photos or voice notes have been captured yet.")
         return
 
     for name, c in cats.items():
-        if not (c["photo_bytes"] or c["audio_bytes"]):
+        if not (c["photos"] or c["audio_bytes"]):
             continue
         with st.container(border=True):
             st.markdown(f"**{name}**")
             col1, col2 = st.columns(2)
             with col1:
-                if c["photo_bytes"]:
-                    st.image(c["photo_bytes"], use_container_width=True)
-                    st.caption(f"Captured: {format_ts(c['photo_captured_at'])}")
+                if c["photos"]:
+                    for p in c["photos"]:
+                        st.image(p["bytes"], use_container_width=True)
+                        st.caption(f"Captured: {format_ts(p['captured_at'])}")
                 else:
                     st.caption("No photo")
             with col2:
@@ -775,11 +851,17 @@ def save_audit_to_supabase():
         st.session_state.last_saved_audit_id = audit_id
 
         for name, c in st.session_state.categories.items():
-            photo_url, audio_url = c["photo_url"], c["audio_url"]
-            if c["photo_bytes"]:
-                path = f"{audit_id}/{name.replace(' ', '_')}.png"
-                photo_url = upload_media_to_supabase(client, "oppa-photos", c["photo_bytes"], path)
-                c["photo_url"] = photo_url
+            photo_urls = []
+            photo_timestamps = []
+            for i, p in enumerate(c["photos"]):
+                path = f"{audit_id}/{name.replace(' ', '_')}_{i}.png"
+                url = upload_media_to_supabase(client, "oppa-photos", p["bytes"], path)
+                p["url"] = url
+                if url:
+                    photo_urls.append(url)
+                    photo_timestamps.append(p["captured_at"].isoformat())
+
+            audio_url = c["audio_url"]
             if c["audio_bytes"]:
                 path = f"{audit_id}/{name.replace(' ', '_')}.wav"
                 audio_url = upload_media_to_supabase(client, "oppa-audio", c["audio_bytes"], path)
@@ -793,9 +875,9 @@ def save_audit_to_supabase():
                 "gap": abs(c["client_score"] - c["auditor_score"]),
                 "severity_flag": c["severity"],
                 "notes": c["notes"],
-                "photo_url": photo_url,
+                "photo_url": "|".join(photo_urls) if photo_urls else None,
                 "audio_url": audio_url,
-                "photo_captured_at": c["photo_captured_at"].isoformat() if c["photo_captured_at"] else None,
+                "photo_captured_at": "|".join(photo_timestamps) if photo_timestamps else None,
                 "audio_captured_at": c["audio_captured_at"].isoformat() if c["audio_captured_at"] else None,
             }
             client.table("audit_categories").insert(cat_row).execute()
@@ -809,6 +891,7 @@ def build_export_dataframe():
     meta = st.session_state.audit_meta
     rows = []
     for name, c in st.session_state.categories.items():
+        photo_timestamps = [format_ts(p["captured_at"]) for p in c["photos"]]
         rows.append({
             "audit_title": meta["audit_title"],
             "client_name": meta["client_name"],
@@ -821,9 +904,10 @@ def build_export_dataframe():
             "gap": abs(c["client_score"] - c["auditor_score"]),
             "severity_flag": c["severity"],
             "notes": c["notes"],
-            "photo_captured_at": format_ts(c["photo_captured_at"]) or "",
+            "photo_count": len(c["photos"]),
+            "photo_captured_at": " | ".join(photo_timestamps),
             "audio_captured_at": format_ts(c["audio_captured_at"]) or "",
-            "has_photo": bool(c["photo_bytes"]),
+            "has_photo": len(c["photos"]) > 0,
             "has_audio": bool(c["audio_bytes"]),
         })
     return pd.DataFrame(rows)
