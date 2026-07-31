@@ -12,6 +12,13 @@ HOW TO RUN THIS APP (it is NOT run by double-clicking or "Run" in an IDE)
 3. streamlit run app.py
 4. It will open automatically in your browser at http://localhost:8501
 
+IMPORTANT: this app also ships a .streamlit/config.toml file that locks
+the app into light theme. This file MUST sit in a folder literally named
+".streamlit" right next to app.py (same folder as secrets.toml). Without
+it, viewers whose phone or browser is set to dark mode will see broken,
+low-contrast text, because Streamlit otherwise follows each viewer's own
+system dark/light preference.
+
 --------------------------------------------------------------------------
 SUPABASE CONFIGURATION
 --------------------------------------------------------------------------
@@ -147,11 +154,30 @@ def inject_custom_css():
             font-family: 'Almarai', sans-serif;
         }
 
+        /* Force readable colors everywhere, regardless of the viewer's
+           own system dark/light mode preference. The .streamlit/config.toml
+           file locks the underlying theme, this is the CSS-level backup. */
+        .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+            background-color: #ffffff !important;
+        }
+
         h1, h2, h3, h4, h5, h6,
         .stMarkdown h1, .stMarkdown h2, .stMarkdown h3,
         .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
             font-family: 'Libre Baskerville', serif !important;
             letter-spacing: 0.2px;
+            color: #1a1a1a !important;
+        }
+
+        .stMarkdown p, .stMarkdown li,
+        [data-testid="stWidgetLabel"] p,
+        [data-testid="stWidgetLabel"] label,
+        [data-testid="stMarkdownContainer"] p {
+            color: #1a1a1a !important;
+        }
+
+        [data-testid="stCaptionContainer"], .stCaption {
+            color: #666666 !important;
         }
 
         :root {
@@ -160,12 +186,8 @@ def inject_custom_css():
             --oppa-border: #e0e0e0;
         }
 
-        .stApp {
-            background-color: #ffffff;
-        }
-
         [data-testid="stHeader"] {
-            background-color: #ffffff;
+            background-color: #ffffff !important;
         }
 
         .stMarkdown h1 {
@@ -176,18 +198,39 @@ def inject_custom_css():
         [data-testid="stExpander"],
         [data-testid="stVerticalBlockBorderWrapper"],
         [data-testid="stMetric"] {
-            background-color: #ffffff;
+            background-color: #ffffff !important;
             border: 1px solid var(--oppa-border);
             border-radius: 0 !important;
         }
 
         [data-testid="stMetricValue"] {
-            color: var(--oppa-red);
+            color: var(--oppa-red) !important;
             font-family: 'Libre Baskerville', serif;
+        }
+
+        [data-testid="stMetricLabel"] {
+            color: #666666 !important;
         }
 
         hr, [data-testid="stDivider"] {
             border-color: var(--oppa-border) !important;
+        }
+
+        /* Text inputs, number inputs, selects, date pickers, text areas:
+           force a white field with black text, so they never render as a
+           dark box with invisible labels under a viewer's dark mode. */
+        .stTextInput input, .stTextArea textarea, .stDateInput input,
+        .stNumberInput input,
+        [data-baseweb="select"] > div,
+        [data-baseweb="input"] {
+            background-color: #ffffff !important;
+            color: #1a1a1a !important;
+            border-radius: 0 !important;
+            border: 1px solid #000000 !important;
+        }
+
+        [data-baseweb="select"] span {
+            color: #1a1a1a !important;
         }
 
         /* Tabs: sleek squares, no rounded corners, centered labels */
@@ -198,12 +241,12 @@ def inject_custom_css():
         }
 
         .stTabs [data-baseweb="tab"] {
-            background-color: #ffffff;
+            background-color: #ffffff !important;
             border-radius: 0 !important;
             border: 1px solid #000000;
             font-family: 'Almarai', sans-serif;
             font-weight: 700;
-            color: #000000;
+            color: #000000 !important;
             padding: 12px 32px;
             justify-content: center;
         }
@@ -211,11 +254,16 @@ def inject_custom_css():
         .stTabs [data-baseweb="tab"] p {
             width: 100%;
             text-align: center;
+            color: inherit !important;
         }
 
         .stTabs [aria-selected="true"] {
             background-color: #000000 !important;
             border: 1px solid #000000 !important;
+            color: #ffffff !important;
+        }
+
+        .stTabs [aria-selected="true"] p {
             color: #ffffff !important;
         }
 
@@ -230,17 +278,17 @@ def inject_custom_css():
         /* Buttons: square, black and white by default */
         .stButton > button, .stDownloadButton > button {
             border-radius: 0 !important;
-            background-color: #ffffff;
-            color: #000000;
-            border: 1px solid #000000;
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #000000 !important;
             font-family: 'Almarai', sans-serif;
             font-weight: 700;
         }
 
         .stButton > button:hover, .stDownloadButton > button:hover {
-            background-color: #000000;
-            border: 1px solid #000000;
-            color: #ffffff;
+            background-color: #000000 !important;
+            border: 1px solid #000000 !important;
+            color: #ffffff !important;
         }
 
         /* Primary buttons: solid black */
@@ -261,20 +309,17 @@ def inject_custom_css():
         }
 
         /* Inputs: square corners */
-        input, textarea, select,
-        .stTextInput > div > div,
-        .stTextArea > div > div,
-        .stSelectbox > div > div,
-        .stDateInput > div > div {
+        input, textarea, select {
             border-radius: 0 !important;
         }
 
         [data-testid="stFileUploaderDropzone"] {
             border-radius: 0 !important;
+            background-color: #ffffff !important;
         }
 
         a, a:visited {
-            color: var(--oppa-red);
+            color: var(--oppa-red) !important;
         }
         </style>
         """,
@@ -766,6 +811,9 @@ def render_dashboard():
         showlegend=True,
         title="Client Perception vs. Auditor Floor Reality",
         height=550,
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        font=dict(color="#1a1a1a"),
     )
     st.plotly_chart(fig, use_container_width=True)
 
