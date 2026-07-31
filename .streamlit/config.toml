@@ -1,0 +1,16 @@
+# This file MUST live at:  .streamlit/config.toml
+# (a folder literally named ".streamlit", sitting right next to app.py,
+# the same place secrets.toml goes)
+#
+# It locks the app into light theme for every single viewer, no matter
+# what dark/light mode setting their own phone or browser is using. This
+# is what fixes the "text disappears" / "everything looks broken" issue
+# some people see when their device is set to dark mode.
+
+[theme]
+base = "light"
+primaryColor = "#A10D29"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#000000"
+font = "sans serif"
