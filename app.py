@@ -217,52 +217,76 @@ def inject_custom_css():
         }
 
         /* Text inputs, number inputs, selects, date pickers, text areas:
-           force a white field with black text, so they never render as a
-           dark box with invisible labels under a viewer's dark mode. */
-        .stTextInput input, .stTextArea textarea, .stDateInput input,
-        .stNumberInput input,
+           the BORDER lives on the outer wrapper only, and the inner field
+           itself gets no border. Putting a border on both, like before,
+           created a visible double-border box (most obvious on the date
+           field, which has an extra inner wrapper for its calendar icon). */
+        .stTextInput > div > div,
+        .stTextArea > div > div,
+        .stDateInput > div > div,
+        .stNumberInput > div > div,
         [data-baseweb="select"] > div,
         [data-baseweb="input"] {
             background-color: #ffffff !important;
-            color: #1a1a1a !important;
             border-radius: 0 !important;
             border: 1px solid #000000 !important;
+        }
+
+        .stTextInput input, .stTextArea textarea, .stDateInput input,
+        .stNumberInput input {
+            background-color: transparent !important;
+            color: #1a1a1a !important;
+            border: none !important;
+            box-shadow: none !important;
         }
 
         [data-baseweb="select"] span {
             color: #1a1a1a !important;
         }
 
-        /* Tabs: sleek squares, no rounded corners, centered labels */
+        /* Tabs: sleek squares, no rounded corners, centered labels, equal
+           width. Selectors target [role="tab"] (a stable ARIA role) in
+           addition to the baseweb data attribute, so this keeps working
+           even if Streamlit's internal class names shift between versions. */
         .stTabs [data-baseweb="tab-list"] {
+            display: flex;
             gap: 0;
             background-color: transparent;
             border-radius: 0 !important;
         }
 
+        .stTabs [data-baseweb="tab-list"] button[role="tab"],
         .stTabs [data-baseweb="tab"] {
+            flex: 1 1 0;
             background-color: #ffffff !important;
             border-radius: 0 !important;
-            border: 1px solid #000000;
+            border: 1px solid #000000 !important;
             font-family: 'Almarai', sans-serif;
             font-weight: 700;
             color: #000000 !important;
-            padding: 12px 32px;
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
             justify-content: center;
+            text-align: center;
         }
 
+        .stTabs [data-baseweb="tab-list"] button[role="tab"] p,
+        .stTabs [data-baseweb="tab-list"] button[role="tab"] div,
         .stTabs [data-baseweb="tab"] p {
             width: 100%;
             text-align: center;
             color: inherit !important;
         }
 
+        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"],
         .stTabs [aria-selected="true"] {
             background-color: #000000 !important;
             border: 1px solid #000000 !important;
             color: #ffffff !important;
         }
 
+        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] p,
         .stTabs [aria-selected="true"] p {
             color: #ffffff !important;
         }
@@ -275,7 +299,12 @@ def inject_custom_css():
             display: none;
         }
 
-        /* Buttons: square, black and white by default */
+        /* Buttons: square, black and white by default. The .stButton /
+           .stDownloadButton qualifier on the inner "p" rules below is
+           deliberate: it needs to be MORE specific than the general
+           [data-testid="stMarkdownContainer"] p rule above, otherwise the
+           button's own text silently gets forced dark grey and becomes
+           unreadable against a black button background. */
         .stButton > button, .stDownloadButton > button {
             border-radius: 0 !important;
             background-color: #ffffff !important;
@@ -283,6 +312,10 @@ def inject_custom_css():
             border: 1px solid #000000 !important;
             font-family: 'Almarai', sans-serif;
             font-weight: 700;
+        }
+
+        .stButton > button p, .stDownloadButton > button p {
+            color: inherit !important;
         }
 
         .stButton > button:hover, .stDownloadButton > button:hover {
